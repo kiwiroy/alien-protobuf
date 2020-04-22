@@ -1,0 +1,21 @@
+language: "perl"
+os: linux
+dist: xenial
+perl:
+  - "5.30"
+
+before_install:
+  - mkdir /home/travis/bin || true
+  - ln -s `which true` /home/travis/bin/cpansign
+  - cpanm -n -q Alien::Build::Plugin::Download::GitHub
+  - eval $(curl https://travis-perl.github.io/init) --auto
+
+install:
+  - dzil authordeps | cpanm -n || true
+  - dzil listdeps | cpanm -n || true
+  - cpanm -n -q --skip-satisfied --installdeps .
+  - export AUTOMATED_TESTING=1 HARNESS_TIMER=1 AUTHOR_TESTING=1 RELEASE_TESTING=0
+  - cpan-install --coverage   # installs coverage prereqs, if enabled
+
+script:
+  - perl Makefile.PL && make test TEST_VERBOSE=1

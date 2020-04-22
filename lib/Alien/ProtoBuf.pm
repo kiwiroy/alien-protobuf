@@ -7,8 +7,14 @@ use parent 'Alien::Base';
 
 # VERSION
 
+sub compiler_only {
+    my $self = shift;
+    return !!($self->runtime_prop->{'compiler_only'});
+}
+
 sub cxxflags {
-    return $_[0]->config('system_provides')->{'C++flags'} || '';
+    my $self = shift;
+    return $self->runtime_prop->{'C++flags'} || '';
 }
 
 1;

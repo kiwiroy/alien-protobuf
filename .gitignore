@@ -10,3 +10,5 @@
 /blib
 /pod2htm?.tmp
 /inc/AP/test*
+/local/
+/_alien

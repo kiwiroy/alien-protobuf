@@ -1,0 +1,86 @@
+# -*- mode: perl; -*-
+use alienfile;
+use POSIX ();
+use constant COMPILER_ONLY => ($ENV{ALIEN_PROTOBUF_COMPILER_ONLY} ? 1 : 0);
+
+requires 'ExtUtils::CppGuess';
+requires 'ExtUtils::CBuilder'                     => '0.280226';
+requires 'Alien::Build::Plugin::Download::GitHub' => '0.05';
+
+plugin 'Probe::CommandLine' => (
+  command   => 'protoc',
+  args      => ['--version'],
+  match     => qr/^libprotoc/,
+  version   => qr/([0-9\.]+)/,
+  secondary => !COMPILER_ONLY,
+);
+
+plugin 'PkgConfig' => (pkg_name => 'protobuf') unless COMPILER_ONLY;
+
+share {
+  require ExtUtils::CBuilder;
+  meta_prop->{protoc_cxx}
+    = (COMPILER_ONLY ? 0 : ExtUtils::CBuilder->new->have_cplusplus);
+
+  my ($os, $arch) = _get_host_info();
+  meta_prop->{protoc_os}     = $os;
+  meta_prop->{protoc_arch}   = $arch;
+  meta_prop->{protoc_format} = meta_prop->{protoc_cxx} ? 'tar.gz' : 'zip';
+
+  # Apply Extract before Download::GitHub as it applies it with 'tar.gz' format
+  plugin Extract => meta_prop->{protoc_format};
+
+  plugin 'Download::GitHub' => (
+    github_user    => 'protocolbuffers',
+    github_repo    => 'protobuf',
+    include_assets => 1,
+    prefer         => \&_prefer_build_type
+  );
+
+  if (meta_prop->{protoc_cxx}) {
+    plugin 'Build::Autoconf';
+    build [
+      '%{configure} --disable-shared CXXFLAGS=-fPIC',
+      '%{make} -j5', '%{make} install'
+    ];
+  }
+  else {
+    plugin 'Build::Copy';
+    after gather => sub {
+      my $build = shift;
+      my $rt_prop = $build->runtime_prop;
+      @$rt_prop{qw(compiler_only cflags cxxflags libs)} = (1, '', '', '');
+    };
+  }
+
+};
+
+after gather => sub {
+  my $build   = shift;
+  my $version = $build->runtime_prop->{version};
+  my ($major, $minor) = split /\./ => $version;
+  if ($major > 3 || ($major == 3 && $minor >= 6)) {
+    require ExtUtils::CppGuess;
+    $build->runtime_prop->{'C++flags'}
+      = ExtUtils::CppGuess->new->is_msvc ? '' : '-std=c++11';
+  }
+};
+
+sub _get_host_info {
+  my ($os, $arch) = ($^O, (POSIX::uname)[4]);
+  $os = 'osx' if $os eq 'darwin';
+  $os = 'win' if $os eq 'win32';
+  return ($os, $arch);
+}
+
+sub _prefer_build_type {
+  my ($build, $res) = @_;
+  my $meta = $build->meta_prop;
+  my ($can_compile, $os, $arch) = @$meta{qw(protoc_cxx protoc_os protoc_arch)};
+  my $filter
+    = ($can_compile
+    ? qr/^protobuf-cpp.*\.tar\.gz/
+    : qr/^protoc-(?:[0-9\.]+)-\Q$os\E-?\Q$arch\E/);
+  my @list = grep { $_->{filename} =~ $filter } @{$res->{list}};
+  return {type => 'list', list => \@list};
+}
